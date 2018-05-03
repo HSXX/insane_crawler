@@ -70,7 +70,7 @@ def down_link(url, filename, thresold = 0):
     if os.path.exists(filename) and os.path.getsize(filename) > 0: #TODO MD5
         return
     #filename = get_valid_filename(filename)
-    headers={'User-Agent':'Mozilla/5.0 (Windows NT 5.1; rv:22.0) Gecko/20100101 Firefox/22.0'}
+    headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:59.0) Gecko/20100101 Firefox/59.0'}
     req = request(url, headers = headers)
     try:
         data = get_data_from_req(req)
