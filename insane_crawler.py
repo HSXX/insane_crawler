@@ -1,9 +1,19 @@
-# -*- coding: gbk -*-
+#!/usr/bin/env python
+#-*- coding:utf-8 -*-
 
 import re
 import os.path
 import threading
 import time
+import zlib
+import gzip
+from StringIO import StringIO
+import socks
+import socket
+import ssl
+# Can be socks4/5
+socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5,'127.0.0.1', 7070)
+socket.socket = socks.socksocket
 
 try:
     import urllib.request
@@ -15,7 +25,7 @@ except ImportError:
 
 urlopen = urllib.request.urlopen
 request = urllib.request.Request
-
+ssl._create_default_https_context = ssl._create_unverified_context
 '''
 try:
     input = raw_input
@@ -25,11 +35,8 @@ except NameError:
 host = input('input target ip:')
 '''
 
-host = '38.103.161.147'
+host = 'www.sis001.com'
 base_url = 'http://' + host + '/forum/'
-http_proxy = "http://localhost:8086"
-use_proxy = False
-http_proxys = {'http': http_proxy}
 wtfdir = 'test'
 mode = 'down' # see, down
 analytics_file = 'test.txt'
@@ -38,7 +45,7 @@ forum_ids = {'YM': 230, 'WM': 143}
 text_order = ['star', 'url', 'title', 'comment', 'view', 'time']
 
 def get_valid_filename(filename):
-    keepcharacters = (' ', '.', '_')
+    keepcharacters = (' ', '.', '_','-','(',')')
     return "".join(c for c in filename if c.isalnum() or c in keepcharacters).rstrip()
 
 def get_data_from_req(req):
@@ -57,9 +64,21 @@ def get_data_from_req(req):
 def get_content_from_url(url):
     attempts = 0
     content = ''
+    print(url)
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent","Mozilla/5.0 (Windows NT 10.0; WOW64; rv:52.0) Gecko/20100101 Firefox/52.0")
+#    req.add_header("Accept-Encoding","gzip, deflate")
     while attempts < 10:
         try:
-            content = urlopen(url).read().decode('gbk', 'ignore')
+#            content = urlopen(url).read().decode('gbk', 'ignore')
+            response = urlopen(req)
+            content = response.read()
+            encoding = response.info().get('Content-Encoding')
+            if encoding == 'gzip':
+                content = ungzip(content)
+            elif encoding == 'deflate':
+                content = deflate(content)
+            content = content.decode('gbk', 'ignore')
             break
         except Exception as e:
             attempts += 1
@@ -67,10 +86,11 @@ def get_content_from_url(url):
     return content
 
 def down_link(url, filename, thresold = 0):
+    print(url)
     if os.path.exists(filename) and os.path.getsize(filename) > 0: #TODO MD5
         return
     #filename = get_valid_filename(filename)
-    headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:59.0) Gecko/20100101 Firefox/59.0'}
+    headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64; rv:52.0) Gecko/20100101 Firefox/52.0'}
     req = request(url, headers = headers)
     try:
         data = get_data_from_req(req)
@@ -91,7 +111,8 @@ def down_imgs_from_url(url):
     #i = re.findall(p3, content, re.M | re.S)
     #ix = re.findall(p1, str(i), re.M | re.S)
     dirname = 'tmp1'
-    os.makedirs(dirname, exist_ok = True)
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
     imgs = re.findall('img src=\"(http[^\"]+)\"', content, re.M | re.S)
     torrents = re.findall('a href=\"(?P<url>attach[=0-9a-zA-Z\.\?]+).*?>(?P<title>[^<>\"]*?torrent)', content, re.M | re.S)
 
@@ -110,9 +131,7 @@ def down_link_imgs_torrents(topic):
     dirname = get_valid_filename(topic['title'])
     if not os.path.exists(dirname):
         os.makedirs(dirname)
-
     content = get_content_from_url(topic['url'])
-
     imgs = re.findall('img src=\"(http[^\"]+)\"', content, re.M | re.S)
     torrents = re.findall('a href=\"(?P<url>attach[=0-9a-zA-Z\.\?]+).*?>(?P<title>[^<>\"]*?torrent)', content, re.M | re.S)
 
@@ -135,7 +154,7 @@ def get_links_from_page(url):
     content = get_content_from_url(url)
     if content == '':
         return
-    #print(content)
+#    print(content)
     attempts = 0
     while attempts < 3:
         topics_html = re.findall('<tbody.*?normalthread.*?>.*?</tbody>', content, re.M | re.S)
@@ -164,14 +183,6 @@ def get_links_from_page(url):
 
     return topics
 
-def install_proxy():
-    if use_proxy == False:
-        return
-    proxy_support = urllib.request.ProxyHandler({"http": http_proxy})
-    opener = urllib.request.build_opener(proxy_support)
-    urllib.request.install_opener(opener)
-    return
-
 class ThreadUrl(threading.Thread):
     url_base = forum_id = begin = end = None
     def __init__(self, url_base, forum_id, begin, end):
@@ -187,13 +198,10 @@ class ThreadUrl(threading.Thread):
             get_links_from_page(url)
 
 def test_main():
-    install_proxy()
-
-    url = base_url + 'thread-4917240-1-1.html'
+    url = base_url + 'thread-10154497-1-1.html'
     down_imgs_from_url(url)
 
 def down_imgs_torrents():
-    install_proxy()
     base_forum_url = base_url + 'forum-{0}-{1}.html'
 
     forum_ids = {'YM' : 230, 'WM' : 143}
@@ -229,7 +237,6 @@ def write_topic_list_to_file(topic_list, filename = 'test.txt'):
 
 
 def down_topics_and_store(forum):
-    install_proxy()
     base_forum_url = base_url + 'forum-{0}-{1}.html'
     #base_forum_url.format(forum_id, page)
     topics = dict();
@@ -262,11 +269,25 @@ def get_all_analytics():
     f1.start()
     f2.start()
 
+def ungzip(data):
+    buf = StringIO(data)
+    f = gzip.GzipFile(fileobj=buf)
+    return f.read()
+
+def deflate(data):
+    try:
+        return zlib.decompress(data, -zlib.MAX_WBITS)
+    except zlib.error:
+        return zlib.decompress(data)
+
+def getaddrinfo(*args):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (args[0], args[1]))]
+socket.getaddrinfo = getaddrinfo
 
 def main():
     down_imgs_torrents()
-    # ��������topics�������������ļ�
     #get_all_analytics()
+#    test_main()
 
 start = time.time()
 if __name__ == '__main__':
